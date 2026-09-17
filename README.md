@@ -10,41 +10,60 @@ Sistema de acompanhamento de negociações de cobrança. Página única (HTML + 
 3. O Railway detecta o `package.json` e roda `npm start` automaticamente.
 4. Em **Settings → Networking → Generate Domain** para obter a URL pública.
 
-## Configuração obrigatória no Firebase (console.firebase.google.com → projeto `inadimplentes-a249d`)
+## Configuração no Firebase — feita UMA vez (console.firebase.google.com → projeto `inadimplentes-a249d`)
 
 ### 1. Ativar login por e-mail/senha
-**Authentication → Sign-in method → Email/Password → Ativar.**
+**Authentication → Sign-in method → Email/Password → Ativar → Salvar.**
+(Se a aba Authentication ainda não foi aberta nunca, clique em "Get started" primeiro.)
 
-### 2. Criar as contas dos atendentes
-**Authentication → Users → Add user** (e-mail + senha). O nome exibido no sistema é a parte
-do e-mail antes do `@` (ex.: `adeildo@...` → "Adeildo"). Para usar nomes com mais de uma
-palavra, o registro antigo do atendente continua funcionando pelo nome que ele já tinha.
-
-### 3. Autorizar o domínio do Railway
-**Authentication → Settings → Authorized domains → Add domain** → cole o domínio gerado pelo
-Railway (ex.: `crm-cobranca.up.railway.app`). Sem isso o login é bloqueado.
-
-### 4. Proteger o banco (IMPORTANTE — dados de CPF)
-**Realtime Database → Rules** → substitua por:
+### 2. Regras do banco (obrigatório — protege os dados de CPF)
+**Realtime Database → Rules** → substitua tudo por:
 
 ```json
 {
   "rules": {
-    "crm_data": {
+    "crm_users": {
       ".read": "auth != null",
-      ".write": "auth != null"
+      "$uid": {
+        ".write": "auth != null && (!root.child('crm_users').exists() || root.child('crm_users').child(auth.uid).child('role').val() == 'admin')"
+      }
+    },
+    "crm_data": {
+      ".read": "auth != null && root.child('crm_users').child(auth.uid).exists()",
+      ".write": "auth != null && root.child('crm_users').child(auth.uid).exists()"
     }
   }
 }
 ```
 
-Com isso só quem estiver logado lê ou escreve.
+O que isso faz:
+- `crm_users` só pode ser criado pelo **primeiro** usuário (bootstrap) ou por um administrador.
+- `crm_data` (clientes e negociações) só é lido/escrito por quem está na lista de acessos.
+
+Clique em **Publish**.
+
+Pronto — depois disso tudo é feito dentro do próprio sistema.
+
+## Primeiro acesso
+
+1. Abra o sistema e clique em **"Primeiro acesso? Criar conta de administrador"**.
+2. Informe nome, e-mail e senha. Você entra como administrador.
+3. Esse link só funciona enquanto não existe nenhum administrador; depois ele recusa.
+
+## Gerenciar a equipe (botão **Equipe**, só para administradores)
+
+- **Criar acesso**: nome (como aparecerá nos cadastros), e-mail, senha inicial e perfil.
+- **Tornar admin / atendente**: muda o perfil.
+- **Redefinir senha**: envia e-mail de redefinição para a pessoa.
+- **Remover acesso**: a pessoa não entra mais; os registros dela ficam no histórico.
+
+> Para o Adeildo continuar como responsável pelos cadastros antigos, crie o acesso dele com
+> o nome exatamente igual ao que ele usava antes ("Adeildo").
 
 ## Dados existentes
 
-Os cadastros feitos na versão anterior (armazenados como lista) continuam sendo lidos
-normalmente. Novos cadastros são gravados por chave individual, o que permite vários
-atendentes trabalharem ao mesmo tempo sem sobrescrever uns aos outros.
+Os cadastros da versão anterior (lista) continuam sendo lidos. Novos cadastros são gravados
+por chave individual, permitindo vários atendentes ao mesmo tempo sem sobrescrita.
 
 ## Rodar localmente
 

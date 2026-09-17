@@ -36,7 +36,29 @@
                     <i class="fas fa-sign-in-alt"></i> Entrar
                 </button>
                 <p class="text-xs text-gray-400 text-center pt-2">Sem acesso? Peça ao administrador para criar sua conta.</p>
+                <p class="text-xs text-center"><a href="#" onclick="toggleSetup(); return false;" class="text-blue-600 hover:underline">Primeiro acesso? Criar conta de administrador</a></p>
             </div>
+
+            <!-- Configuração inicial (só funciona enquanto não existe administrador) -->
+            <div id="setupBox" class="hidden mt-4 border-t pt-4 space-y-3">
+                <p class="text-sm font-bold text-blue-800"><i class="fas fa-user-shield"></i> Criar primeiro administrador</p>
+                <p class="text-xs text-gray-500">Disponível apenas enquanto o sistema não tem nenhum administrador cadastrado.</p>
+                <input type="text" id="setupName" class="w-full border p-2 rounded" placeholder="Seu nome (ex.: Celso Muniz)">
+                <input type="email" id="setupEmail" class="w-full border p-2 rounded" placeholder="Seu e-mail">
+                <input type="password" id="setupPassword" class="w-full border p-2 rounded" placeholder="Senha (mínimo 6 caracteres)">
+                <p id="setupError" class="text-red-600 text-sm hidden"></p>
+                <button onclick="doSetup()" id="btnSetup" class="w-full bg-green-600 text-white py-2 rounded font-bold hover:bg-green-700">Criar administrador</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tela: conta sem liberação -->
+    <div id="noAccessScreen" class="hidden min-h-screen items-center justify-center p-4">
+        <div class="bg-white rounded-lg shadow-xl p-8 w-full max-w-sm text-center">
+            <div class="text-yellow-500 text-4xl mb-3"><i class="fas fa-user-lock"></i></div>
+            <h2 class="text-lg font-bold mb-2">Conta sem liberação</h2>
+            <p class="text-sm text-gray-600 mb-4">Sua conta (<span id="noAccessEmail" class="font-bold"></span>) existe, mas ainda não foi liberada por um administrador do CRM.</p>
+            <button onclick="auth.signOut()" class="w-full bg-gray-700 text-white py-2 rounded font-bold hover:bg-gray-800">Sair</button>
         </div>
     </div>
 
@@ -46,6 +68,9 @@
             <h1 class="text-lg md:text-xl font-bold"><i class="fas fa-handshake"></i> CRM Cobrança Ativa</h1>
             <div class="flex items-center gap-3 text-sm">
                 <span class="hidden sm:inline"><i class="fas fa-user"></i> <span id="operatorLabel" class="font-bold"></span></span>
+                <button onclick="openTeamModal()" id="btnTeam" class="hidden bg-blue-900 hover:bg-blue-950 px-3 py-1.5 rounded" title="Equipe">
+                    <i class="fas fa-users"></i> <span class="hidden sm:inline">Equipe</span>
+                </button>
                 <button onclick="doLogout()" class="bg-blue-900 hover:bg-blue-950 px-3 py-1.5 rounded" title="Sair">
                     <i class="fas fa-sign-out-alt"></i> <span class="hidden sm:inline">Sair</span>
                 </button>
@@ -149,6 +174,34 @@
             <div id="btnCancelStep1" class="mt-4 flex justify-end">
                 <button onclick="closeModal('newNegotiationModal')" class="bg-gray-400 text-white px-4 py-2 rounded">Cancelar Cadastro</button>
             </div>
+        </div>
+    </div>
+
+    <!-- ===================== MODAL: EQUIPE (admin) ===================== -->
+    <div id="teamModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50 p-2">
+        <div class="bg-white rounded-lg p-6 w-full max-w-2xl shadow-xl max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-bold"><i class="fas fa-users"></i> Equipe</h2>
+                <button onclick="closeModal('teamModal')" class="text-gray-500 text-xl px-2"><i class="fas fa-times"></i></button>
+            </div>
+
+            <div class="bg-gray-50 p-4 rounded border mb-4">
+                <p class="text-sm font-bold mb-2">Cadastrar atendente</p>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    <input type="text" id="teamName" class="border p-2 rounded text-sm" placeholder="Nome (como aparece no CRM)">
+                    <input type="email" id="teamEmail" class="border p-2 rounded text-sm" placeholder="E-mail de login">
+                    <input type="password" id="teamPassword" class="border p-2 rounded text-sm" placeholder="Senha inicial (mín. 6)">
+                    <select id="teamRole" class="border p-2 rounded text-sm">
+                        <option value="atendente">Atendente</option>
+                        <option value="admin">Administrador</option>
+                    </select>
+                </div>
+                <p id="teamError" class="text-red-600 text-sm mt-2 hidden"></p>
+                <button onclick="createTeamUser()" id="btnTeamCreate" class="mt-3 w-full bg-green-600 text-white py-2 rounded font-bold hover:bg-green-700"><i class="fas fa-user-plus"></i> Criar acesso</button>
+            </div>
+
+            <p class="text-sm font-bold mb-2">Usuários com acesso</p>
+            <div id="teamList" class="space-y-2"></div>
         </div>
     </div>
 
@@ -260,9 +313,12 @@
         const auth = firebase.auth();
         const database = firebase.database();
         const dbRef = database.ref('crm_data');
+        const usersRef = database.ref('crm_users');
 
         const INACTIVE = ["Concluído", "Não Atendido"];
-        let currentUser = null;        // { name, email, uid }
+        let currentUser = null;        // { name, email, uid, role }
+        let teamUsers = {};
+        let teamListener = null;
         let currentNegotiationId = null; // chave do registro no Firebase
         let db = [];                     // lista normalizada de negociações
         let dbListener = null;
@@ -278,6 +334,26 @@
             if (user.displayName) return user.displayName;
             const local = user.email.split('@')[0];
             return local.charAt(0).toUpperCase() + local.slice(1);
+        }
+        function showScreen(id) {
+            ['loginScreen', 'noAccessScreen', 'appScreen'].forEach(s => {
+                const el = document.getElementById(s);
+                el.style.display = (s === id) ? (s === 'appScreen' ? 'block' : 'flex') : 'none';
+            });
+        }
+        function authMsg(e) {
+            const msgs = {
+                'auth/invalid-credential': 'E-mail ou senha incorretos.',
+                'auth/wrong-password': 'E-mail ou senha incorretos.',
+                'auth/user-not-found': 'Usuário não encontrado.',
+                'auth/invalid-email': 'E-mail inválido.',
+                'auth/email-already-in-use': 'Já existe uma conta com este e-mail.',
+                'auth/weak-password': 'A senha precisa ter pelo menos 6 caracteres.',
+                'auth/too-many-requests': 'Muitas tentativas. Aguarde alguns minutos.',
+                'auth/network-request-failed': 'Sem conexão com a internet.',
+                'auth/operation-not-allowed': 'Login por e-mail/senha não está ativado no Firebase (Authentication → Sign-in method).'
+            };
+            return msgs[e.code] || (e.message || String(e));
         }
         function recRef(key) { return dbRef.child(key); }
         function timelineRef(key) { return dbRef.child(key).child('timeline'); }
@@ -303,21 +379,166 @@
         }
 
         // ===================== AUTENTICAÇÃO =====================
-        auth.onAuthStateChanged(user => {
-            if (user) {
-                currentUser = { name: nameFromUser(user), email: user.email, uid: user.uid };
-                document.getElementById('operatorLabel').innerText = currentUser.name;
-                document.getElementById('loginScreen').style.display = 'none';
-                document.getElementById('appScreen').style.display = 'block';
-                startListening();
-            } else {
+        auth.onAuthStateChanged(async user => {
+            if (!user) {
                 currentUser = null;
-                stopListening();
+                stopListening(); stopTeamListening();
                 db = [];
-                document.getElementById('appScreen').style.display = 'none';
-                document.getElementById('loginScreen').style.display = 'flex';
+                showScreen('loginScreen');
+                return;
             }
+            // Busca o perfil do usuário na lista de acessos do CRM
+            let profile = null;
+            try {
+                const snap = await usersRef.child(user.uid).get();
+                profile = snap.val();
+            } catch (e) {
+                console.error(e);
+                alert('Não foi possível ler as permissões. Verifique as regras do banco no Firebase.\n\n' + authMsg(e));
+            }
+            if (!profile) {
+                document.getElementById('noAccessEmail').innerText = user.email;
+                showScreen('noAccessScreen');
+                return;
+            }
+            currentUser = { name: profile.name || nameFromUser(user), email: user.email, uid: user.uid, role: profile.role || 'atendente' };
+            document.getElementById('operatorLabel').innerText = currentUser.name;
+            document.getElementById('btnTeam').style.display = currentUser.role === 'admin' ? 'inline-block' : 'none';
+            showScreen('appScreen');
+            startListening();
         });
+
+        // ---- Primeiro acesso: cria o administrador inicial ----
+        function toggleSetup() {
+            const b = document.getElementById('setupBox');
+            b.style.display = b.style.display === 'block' ? 'none' : 'block';
+        }
+
+        async function doSetup() {
+            const name = document.getElementById('setupName').value.trim();
+            const email = document.getElementById('setupEmail').value.trim();
+            const pass = document.getElementById('setupPassword').value;
+            const err = document.getElementById('setupError');
+            const btn = document.getElementById('btnSetup');
+            err.classList.add('hidden');
+            if (!name || !email || !pass) { err.innerText = 'Preencha nome, e-mail e senha.'; err.classList.remove('hidden'); return; }
+            btn.disabled = true; btn.innerText = 'Criando...';
+            let cred = null;
+            try {
+                cred = await auth.createUserWithEmailAndPassword(email, pass);
+                await cred.user.updateProfile({ displayName: name });
+                // Só grava se ainda não existe nenhum usuário (regra do banco garante isso)
+                await usersRef.child(cred.user.uid).set({ name, email, role: 'admin', createdAt: getTimestamp() });
+                // onAuthStateChanged já leva pro app
+            } catch (e) {
+                if (cred && cred.user) {
+                    // Já existe administrador: desfaz a conta recém-criada
+                    try { await cred.user.delete(); } catch (_) {}
+                    err.innerText = 'O sistema já tem um administrador. Peça a ele para criar seu acesso.';
+                } else {
+                    err.innerText = authMsg(e);
+                }
+                err.classList.remove('hidden');
+            } finally {
+                btn.disabled = false; btn.innerText = 'Criar administrador';
+            }
+        }
+
+        // ---- Gestão de equipe (admin) ----
+        let secondaryApp = null;
+        function getSecondaryAuth() {
+            if (!secondaryApp) secondaryApp = firebase.initializeApp(firebaseConfig, 'secondary');
+            return secondaryApp.auth();
+        }
+
+        function openTeamModal() {
+            if (!currentUser || currentUser.role !== 'admin') return;
+            ['teamName','teamEmail','teamPassword'].forEach(id => document.getElementById(id).value = '');
+            document.getElementById('teamRole').value = 'atendente';
+            document.getElementById('teamError').classList.add('hidden');
+            startTeamListening();
+            openModal('teamModal');
+        }
+
+        function startTeamListening() {
+            if (teamListener) return;
+            teamListener = usersRef.on('value', snap => { teamUsers = snap.val() || {}; renderTeam(); });
+        }
+        function stopTeamListening() {
+            if (teamListener) { usersRef.off('value', teamListener); teamListener = null; }
+        }
+
+        function renderTeam() {
+            const list = document.getElementById('teamList');
+            const entries = Object.entries(teamUsers).sort((a, b) => (a[1].name || '').localeCompare(b[1].name || ''));
+            if (entries.length === 0) { list.innerHTML = '<p class="text-gray-400 text-sm">Nenhum usuário.</p>'; return; }
+            list.innerHTML = entries.map(([uid, u]) => {
+                const isMe = uid === currentUser.uid;
+                const roleBadge = u.role === 'admin'
+                    ? '<span class="text-[10px] px-2 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-300 font-bold">ADMIN</span>'
+                    : '<span class="text-[10px] px-2 py-0.5 rounded bg-gray-100 text-gray-700 border font-bold">ATENDENTE</span>';
+                return `
+                    <div class="border rounded p-3 flex flex-col md:flex-row md:items-center justify-between gap-2 bg-white">
+                        <div>
+                            <p class="font-bold">${esc(u.name)} ${isMe ? '<span class="text-xs text-gray-400">(você)</span>' : ''} ${roleBadge}</p>
+                            <p class="text-xs text-gray-500">${esc(u.email)}</p>
+                        </div>
+                        <div class="flex flex-wrap gap-1 text-xs">
+                            <button onclick="toggleRole('${uid}')" ${isMe ? 'disabled' : ''} class="px-2 py-1 rounded border ${isMe ? 'text-gray-300 cursor-not-allowed' : 'hover:bg-gray-100'}">${u.role === 'admin' ? 'Tornar atendente' : 'Tornar admin'}</button>
+                            <button onclick="resetPassword('${esc(u.email)}')" class="px-2 py-1 rounded border hover:bg-gray-100"><i class="fas fa-key"></i> Redefinir senha</button>
+                            <button onclick="removeTeamUser('${uid}')" ${isMe ? 'disabled' : ''} class="px-2 py-1 rounded border ${isMe ? 'text-gray-300 cursor-not-allowed' : 'text-red-600 border-red-300 hover:bg-red-50'}"><i class="fas fa-user-slash"></i> Remover acesso</button>
+                        </div>
+                    </div>`;
+            }).join('');
+        }
+
+        async function createTeamUser() {
+            const name = document.getElementById('teamName').value.trim();
+            const email = document.getElementById('teamEmail').value.trim();
+            const pass = document.getElementById('teamPassword').value;
+            const role = document.getElementById('teamRole').value;
+            const err = document.getElementById('teamError');
+            const btn = document.getElementById('btnTeamCreate');
+            err.classList.add('hidden');
+            if (!name || !email || !pass) { err.innerText = 'Preencha nome, e-mail e senha.'; err.classList.remove('hidden'); return; }
+            btn.disabled = true; btn.innerText = 'Criando...';
+            try {
+                // App secundário: cria o usuário sem deslogar o administrador
+                const sec = getSecondaryAuth();
+                const cred = await sec.createUserWithEmailAndPassword(email, pass);
+                await cred.user.updateProfile({ displayName: name });
+                await sec.signOut();
+                await usersRef.child(cred.user.uid).set({ name, email, role, createdAt: getTimestamp(), createdBy: currentUser.name });
+                ['teamName','teamEmail','teamPassword'].forEach(id => document.getElementById(id).value = '');
+                alert(`Acesso criado para ${name}.\nE-mail: ${email}\nSenha: ${pass}\n\nEnvie esses dados para a pessoa.`);
+            } catch (e) {
+                err.innerText = authMsg(e);
+                err.classList.remove('hidden');
+            } finally {
+                btn.disabled = false; btn.innerHTML = '<i class="fas fa-user-plus"></i> Criar acesso';
+            }
+        }
+
+        async function toggleRole(uid) {
+            const u = teamUsers[uid]; if (!u) return;
+            const newRole = u.role === 'admin' ? 'atendente' : 'admin';
+            if (!confirm(`Alterar ${u.name} para ${newRole}?`)) return;
+            try { await usersRef.child(uid).update({ role: newRole }); }
+            catch (e) { alert(authMsg(e)); }
+        }
+
+        async function removeTeamUser(uid) {
+            const u = teamUsers[uid]; if (!u) return;
+            if (!confirm(`Remover o acesso de ${u.name}? A pessoa não conseguirá mais entrar no CRM.\n(Os registros feitos por ela continuam no histórico.)`)) return;
+            try { await usersRef.child(uid).remove(); }
+            catch (e) { alert(authMsg(e)); }
+        }
+
+        async function resetPassword(email) {
+            if (!confirm(`Enviar e-mail de redefinição de senha para ${email}?`)) return;
+            try { await auth.sendPasswordResetEmail(email); alert('E-mail enviado. A pessoa deve conferir a caixa de entrada (e o spam).'); }
+            catch (e) { alert(authMsg(e)); }
+        }
 
         async function doLogin() {
             const email = document.getElementById('loginEmail').value.trim();
@@ -332,15 +553,7 @@
                 await auth.signInWithEmailAndPassword(email, pass);
                 document.getElementById('loginPassword').value = '';
             } catch (e) {
-                const msgs = {
-                    'auth/invalid-credential': 'E-mail ou senha incorretos.',
-                    'auth/wrong-password': 'E-mail ou senha incorretos.',
-                    'auth/user-not-found': 'Usuário não encontrado.',
-                    'auth/invalid-email': 'E-mail inválido.',
-                    'auth/too-many-requests': 'Muitas tentativas. Aguarde alguns minutos.',
-                    'auth/network-request-failed': 'Sem conexão com a internet.'
-                };
-                err.innerText = msgs[e.code] || ('Erro ao entrar: ' + e.message);
+                err.innerText = authMsg(e);
                 err.classList.remove('hidden');
             } finally {
                 btn.disabled = false; btn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Entrar';
@@ -757,11 +970,12 @@
         function closeModal(id) {
             document.getElementById(id).style.display = 'none';
             if (id === 'detailsModal') currentNegotiationId = null;
+            if (id === 'teamModal') stopTeamListening();
         }
 
         // Fecha modais com ESC
         document.addEventListener('keydown', e => {
-            if (e.key === 'Escape') { closeModal('detailsModal'); closeModal('newNegotiationModal'); }
+            if (e.key === 'Escape') { closeModal('detailsModal'); closeModal('newNegotiationModal'); closeModal('teamModal'); }
         });
 
         switchTab('active');
