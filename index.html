@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CRM Cobrança & Negociação — Escola Instructiva</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+
+    <!-- Firebase (compat) -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-database-compat.js"></script>
+</head>
+<body class="bg-gray-100 text-gray-800 font-sans min-h-screen">
+
+    <!-- ===================== TELA DE LOGIN ===================== -->
+    <div id="loginScreen" class="min-h-screen flex items-center justify-center p-4">
+        <div class="bg-white rounded-lg shadow-xl p-8 w-full max-w-sm">
+            <div class="text-center mb-6">
+                <div class="text-blue-800 text-4xl mb-2"><i class="fas fa-handshake"></i></div>
+                <h1 class="text-2xl font-bold text-blue-800">CRM Cobrança Ativa</h1>
+                <p class="text-sm text-gray-500">Escola Instructiva</p>
+            </div>
+            <div class="space-y-3">
+                <div>
+                    <label class="block text-sm font-bold mb-1">E-mail</label>
+                    <input type="email" id="loginEmail" class="w-full border p-2 rounded" placeholder="voce@escolainstructiva.com.br" autocomplete="username">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold mb-1">Senha</label>
+                    <input type="password" id="loginPassword" class="w-full border p-2 rounded" autocomplete="current-password" onkeyup="if(event.key==='Enter') doLogin()">
+                </div>
+                <p id="loginError" class="text-red-600 text-sm hidden"></p>
+                <button onclick="doLogin()" id="btnLogin" class="w-full bg-blue-700 text-white py-2 rounded font-bold hover:bg-blue-800">
+                    <i class="fas fa-sign-in-alt"></i> Entrar
+                </button>
+                <p class="text-xs text-gray-400 text-center pt-2">Sem acesso? Peça ao administrador para criar sua conta.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===================== APLICATIVO ===================== -->
+    <div id="appScreen" class="hidden">
+        <header class="bg-blue-800 text-white p-4 shadow-md flex justify-between items-center gap-2">
+            <h1 class="text-lg md:text-xl font-bold"><i class="fas fa-handshake"></i> CRM Cobrança Ativa</h1>
+            <div class="flex items-center gap-3 text-sm">
+                <span class="hidden sm:inline"><i class="fas fa-user"></i> <span id="operatorLabel" class="font-bold"></span></span>
+                <button onclick="doLogout()" class="bg-blue-900 hover:bg-blue-950 px-3 py-1.5 rounded" title="Sair">
+                    <i class="fas fa-sign-out-alt"></i> <span class="hidden sm:inline">Sair</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Navegação, Busca e Ações -->
+        <div class="container mx-auto p-4 flex flex-col md:flex-row justify-between items-center mt-2 gap-4">
+            <div class="flex space-x-2 w-full md:w-auto">
+                <button onclick="switchTab('active')" id="btnTabActive" class="px-4 py-2 rounded font-bold w-full md:w-auto">Painel Principal (Ativos)</button>
+                <button onclick="switchTab('history')" id="btnTabHistory" class="px-4 py-2 rounded font-bold w-full md:w-auto">Histórico (Inativos)</button>
+            </div>
+
+            <div class="flex w-full md:w-auto space-x-2">
+                <div class="relative w-full md:w-64">
+                    <i class="fas fa-search absolute left-3 top-3 text-gray-400"></i>
+                    <input type="text" id="searchInput" onkeyup="renderPanels()" placeholder="Buscar por nome, CPF ou telefone..." class="w-full border pl-10 p-2 rounded shadow-sm focus:outline-none focus:border-blue-500">
+                </div>
+                <button onclick="openNewModal()" class="bg-green-600 text-white px-4 py-2 rounded font-bold shadow hover:bg-green-700 whitespace-nowrap">
+                    <i class="fas fa-plus"></i> Novo Cliente
+                </button>
+            </div>
+        </div>
+
+        <div id="activePanel" class="container mx-auto p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+
+        <div id="historyPanel" class="hidden container mx-auto p-4">
+            <div class="bg-white rounded shadow p-4">
+                <h2 class="text-xl font-bold mb-4">Negociações Concluídas e Não Atendidas</h2>
+                <div id="historyList" class="space-y-2"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===================== MODAL: NOVO CADASTRO ===================== -->
+    <div id="newNegotiationModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50 p-2">
+        <div class="bg-white rounded-lg p-6 w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto">
+            <h2 class="text-xl font-bold mb-4">Iniciar Novo Cadastro</h2>
+
+            <div id="stepSearchDuplicate" class="mb-4 p-4 border rounded bg-gray-50">
+                <label class="block text-sm font-bold mb-2">Verifique se o cliente já existe (Nome ou CPF):</label>
+                <div class="flex gap-2">
+                    <input type="text" id="duplicateSearchInput" class="w-full border p-2 rounded" placeholder="Digite aqui..." onkeyup="if(event.key==='Enter') checkDuplicate()">
+                    <button onclick="checkDuplicate()" class="bg-gray-800 text-white px-4 rounded font-bold hover:bg-gray-900">Buscar</button>
+                </div>
+                <div id="duplicateResultArea" class="mt-3"></div>
+            </div>
+
+            <div id="stepFillData" class="space-y-3 hidden">
+                <div class="grid grid-cols-2 gap-2">
+                    <div class="col-span-2">
+                        <label class="block text-sm font-bold">Nome do Cliente *</label>
+                        <input type="text" id="newClientName" class="w-full border p-2 rounded">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-bold">CPF</label>
+                        <input type="text" id="newCpf" class="w-full border p-2 rounded" placeholder="000.000.000-00">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-bold">Telefone *</label>
+                        <input type="text" id="newTel" class="w-full border p-2 rounded" placeholder="(00) 00000-0000">
+                    </div>
+                    <div class="col-span-2">
+                        <label class="block text-sm font-bold">E-mail</label>
+                        <input type="email" id="newEmail" class="w-full border p-2 rounded" placeholder="cliente@email.com">
+                    </div>
+                </div>
+
+                <hr class="my-2">
+
+                <div>
+                    <label class="block text-sm font-bold">Status Inicial</label>
+                    <select id="newStatus" onchange="toggleReturnDate('newStatus', 'newReturnDateDiv')" class="w-full border p-2 rounded">
+                        <option value="Em negociação">Em negociação</option>
+                        <option value="Retornar em data combinada">Retornar em data combinada</option>
+                        <option value="Aguardando aceite">Aguardando aceite</option>
+                    </select>
+                </div>
+                <div id="newReturnDateDiv" class="hidden">
+                    <label class="block text-sm font-bold">Data para Retorno</label>
+                    <input type="date" id="newReturnDate" class="w-full border p-2 rounded">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold">Permitir que outro atendente assuma?</label>
+                    <select id="newAllowTakeover" class="w-full border p-2 rounded">
+                        <option value="Sim">Sim</option>
+                        <option value="Não">Não</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-bold">Observação Inicial</label>
+                    <textarea id="newObservation" class="w-full border p-2 rounded" rows="2"></textarea>
+                </div>
+
+                <div class="mt-6 flex justify-end space-x-3">
+                    <button onclick="closeModal('newNegotiationModal')" class="bg-gray-400 text-white px-4 py-2 rounded">Cancelar</button>
+                    <button onclick="createNegotiation()" class="bg-blue-600 text-white px-4 py-2 rounded">Salvar Cadastro</button>
+                </div>
+            </div>
+
+            <div id="btnCancelStep1" class="mt-4 flex justify-end">
+                <button onclick="closeModal('newNegotiationModal')" class="bg-gray-400 text-white px-4 py-2 rounded">Cancelar Cadastro</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===================== MODAL: DETALHES ===================== -->
+    <div id="detailsModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50 p-2">
+        <div class="bg-white rounded-lg p-4 md:p-6 w-full max-w-5xl shadow-xl flex flex-col md:flex-row gap-4 h-[95vh] md:h-[90vh] overflow-hidden">
+
+            <!-- Coluna Esquerda: Ações -->
+            <div class="w-full md:w-1/3 md:border-r md:pr-4 overflow-y-auto flex-shrink-0 max-h-[45vh] md:max-h-full">
+                <div class="flex justify-between items-start">
+                    <h2 class="text-xl font-bold mb-1" id="detailClientName">Nome do Cliente</h2>
+                    <button onclick="closeModal('detailsModal')" class="md:hidden text-gray-500 text-xl px-2"><i class="fas fa-times"></i></button>
+                </div>
+                <div class="text-xs text-gray-500 mb-2">
+                    CPF: <span id="detailCpf"></span> | Tel: <span id="detailTel"></span><br>
+                    Email: <span id="detailEmail"></span>
+                    <button onclick="toggleEditForm()" class="ml-1 text-blue-600 hover:underline"><i class="fas fa-pen"></i> editar</button>
+                </div>
+
+                <!-- Edição de dados cadastrais -->
+                <div id="editForm" class="hidden bg-blue-50 p-3 rounded border border-blue-200 mb-3 space-y-2">
+                    <p class="text-xs font-bold text-blue-800">Editar dados do cliente</p>
+                    <input type="text" id="editName" class="w-full border p-1.5 rounded text-sm" placeholder="Nome">
+                    <input type="text" id="editCpf" class="w-full border p-1.5 rounded text-sm" placeholder="CPF">
+                    <input type="text" id="editTel" class="w-full border p-1.5 rounded text-sm" placeholder="Telefone">
+                    <input type="email" id="editEmail" class="w-full border p-1.5 rounded text-sm" placeholder="E-mail">
+                    <div class="flex gap-2">
+                        <button onclick="saveEdit()" class="flex-1 bg-blue-600 text-white text-sm p-1.5 rounded hover:bg-blue-700">Salvar</button>
+                        <button onclick="toggleEditForm()" class="flex-1 bg-gray-300 text-gray-800 text-sm p-1.5 rounded">Cancelar</button>
+                    </div>
+                </div>
+
+                <div class="mb-4 text-sm bg-gray-100 p-2 rounded">
+                    Resp: <span id="detailResponsible" class="font-bold"></span><br>
+                    Status: <span id="detailStatusBadge" class="font-bold text-blue-700"></span><br>
+                    Falhas de contato: <span id="detailFailedAttempts" class="font-bold text-red-600"></span>
+                </div>
+
+                <div id="actionForms" class="space-y-4">
+                    <div class="bg-gray-50 p-3 rounded border">
+                        <label class="block text-sm font-bold mb-1">Mudar Status</label>
+                        <select id="actionStatus" onchange="toggleReturnDate('actionStatus', 'actionReturnDateDiv')" class="w-full border p-2 rounded mb-2 text-sm">
+                            <option value="Em negociação">Em negociação</option>
+                            <option value="Retornar em data combinada">Retornar em data combinada</option>
+                            <option value="Aguardando aceite">Aguardando aceite</option>
+                            <option value="Concluído">Concluído</option>
+                        </select>
+                        <div id="actionReturnDateDiv" class="hidden mb-2">
+                            <label class="block text-xs font-bold">Data:</label>
+                            <input type="date" id="actionReturnDate" class="w-full border p-1 rounded text-sm">
+                        </div>
+                        <button onclick="updateStatus()" class="w-full bg-blue-600 text-white text-sm p-2 rounded hover:bg-blue-700">Atualizar Status</button>
+                    </div>
+
+                    <div class="bg-gray-50 p-3 rounded border border-red-200">
+                        <button onclick="registerMissedCall()" class="w-full bg-red-100 text-red-700 font-bold text-sm p-2 rounded hover:bg-red-200 border border-red-300">
+                            <i class="fas fa-phone-slash"></i> Registrar Não Atendimento
+                        </button>
+                        <p class="text-[10px] text-gray-500 text-center mt-1">O registro irá para o histórico</p>
+                    </div>
+
+                    <div class="bg-gray-50 p-3 rounded border">
+                        <label class="block text-sm font-bold mb-1">Adicionar Observação</label>
+                        <textarea id="actionObservation" class="w-full border p-2 rounded mb-2 text-sm" rows="2"></textarea>
+                        <button onclick="addInteraction('Observação', 'actionObservation')" class="w-full bg-blue-600 text-white text-sm p-2 rounded hover:bg-blue-700">Salvar Obs.</button>
+                    </div>
+
+                    <div class="bg-gray-50 p-3 rounded border">
+                        <label class="block text-sm font-bold mb-1">Registrar Proposta</label>
+                        <textarea id="actionProposal" class="w-full border p-2 rounded mb-2 text-sm" rows="2"></textarea>
+                        <button onclick="addInteraction('Proposta', 'actionProposal')" class="w-full bg-green-600 text-white text-sm p-2 rounded hover:bg-green-700">Salvar Proposta</button>
+                    </div>
+                </div>
+
+                <div id="resumeArea" class="hidden bg-yellow-50 p-4 rounded border border-yellow-200 mb-4 mt-2">
+                    <p class="text-sm text-yellow-800 font-bold mb-2"><i class="fas fa-exclamation-circle"></i> Negociação Inativa</p>
+                    <p class="text-xs text-yellow-700 mb-3">Retomar este contato enviará o cliente de volta ao painel principal.</p>
+                    <button onclick="resumeNegotiation()" class="w-full bg-yellow-600 text-white text-sm p-2 rounded font-bold hover:bg-yellow-700 shadow">Retomar Negociação</button>
+                </div>
+
+                <div class="mt-6 space-y-2">
+                    <button onclick="exportCSV()" class="w-full bg-gray-800 text-white text-sm p-2 rounded hover:bg-gray-900"><i class="fas fa-file-csv"></i> Exportar Histórico</button>
+                    <button onclick="deleteNegotiation()" class="w-full bg-white text-red-600 border border-red-300 text-sm p-2 rounded hover:bg-red-50"><i class="fas fa-trash"></i> Excluir Cadastro</button>
+                    <button onclick="closeModal('detailsModal')" class="w-full bg-gray-300 text-gray-800 text-sm p-2 rounded hover:bg-gray-400">Fechar Janela</button>
+                </div>
+            </div>
+
+            <!-- Coluna Direita: Linha do Tempo -->
+            <div class="w-full md:w-2/3 md:pl-4 flex flex-col flex-1 min-h-0">
+                <h3 class="text-lg font-bold mb-2">Histórico (Linha do Tempo)</h3>
+                <div id="timelineContainer" class="flex-1 overflow-y-auto bg-gray-50 p-4 border rounded"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ===================== CONFIGURAÇÃO DO FIREBASE =====================
+        const firebaseConfig = {
+            apiKey: "AIzaSyC69ynCbWuJmE4JmstjPdpMSdWLSoU1hPM",
+            authDomain: "inadimplentes-a249d.firebaseapp.com",
+            databaseURL: "https://inadimplentes-a249d-default-rtdb.firebaseio.com",
+            projectId: "inadimplentes-a249d",
+            storageBucket: "inadimplentes-a249d.firebasestorage.app",
+            messagingSenderId: "731693993038",
+            appId: "1:731693993038:web:a522194af7d5f2af2e471f"
+        };
+
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const database = firebase.database();
+        const dbRef = database.ref('crm_data');
+
+        const INACTIVE = ["Concluído", "Não Atendido"];
+        let currentUser = null;        // { name, email, uid }
+        let currentNegotiationId = null; // chave do registro no Firebase
+        let db = [];                     // lista normalizada de negociações
+        let dbListener = null;
+        let currentTab = 'active';
+
+        // ===================== UTILITÁRIOS =====================
+        function esc(s) {
+            return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        }
+        function getTimestamp() { return new Date().toLocaleString('pt-BR'); }
+        function digits(s) { return String(s || '').replace(/\D/g, ''); }
+        function nameFromUser(user) {
+            if (user.displayName) return user.displayName;
+            const local = user.email.split('@')[0];
+            return local.charAt(0).toUpperCase() + local.slice(1);
+        }
+        function recRef(key) { return dbRef.child(key); }
+        function timelineRef(key) { return dbRef.child(key).child('timeline'); }
+        function findNeg(key) { return db.find(n => n._key === key); }
+
+        // Normaliza dados vindos do Firebase (aceita array antigo ou objeto por chave)
+        function normalize(data) {
+            if (!data) return [];
+            return Object.entries(data)
+                .filter(([, v]) => v && v.clientName)
+                .map(([key, v]) => ({
+                    ...v,
+                    _key: key,
+                    timeline: v.timeline ? Object.values(v.timeline) : []
+                }));
+        }
+
+        function logTimeline(key, action, detail) {
+            return timelineRef(key).push({
+                date: getTimestamp(), operator: currentUser.name, uid: currentUser.uid,
+                action, detail
+            });
+        }
+
+        // ===================== AUTENTICAÇÃO =====================
+        auth.onAuthStateChanged(user => {
+            if (user) {
+                currentUser = { name: nameFromUser(user), email: user.email, uid: user.uid };
+                document.getElementById('operatorLabel').innerText = currentUser.name;
+                document.getElementById('loginScreen').style.display = 'none';
+                document.getElementById('appScreen').style.display = 'block';
+                startListening();
+            } else {
+                currentUser = null;
+                stopListening();
+                db = [];
+                document.getElementById('appScreen').style.display = 'none';
+                document.getElementById('loginScreen').style.display = 'flex';
+            }
+        });
+
+        async function doLogin() {
+            const email = document.getElementById('loginEmail').value.trim();
+            const pass = document.getElementById('loginPassword').value;
+            const err = document.getElementById('loginError');
+            const btn = document.getElementById('btnLogin');
+            err.classList.add('hidden');
+            if (!email || !pass) { err.innerText = 'Informe e-mail e senha.'; err.classList.remove('hidden'); return; }
+            btn.disabled = true; btn.innerText = 'Entrando...';
+            try {
+                await auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+                await auth.signInWithEmailAndPassword(email, pass);
+                document.getElementById('loginPassword').value = '';
+            } catch (e) {
+                const msgs = {
+                    'auth/invalid-credential': 'E-mail ou senha incorretos.',
+                    'auth/wrong-password': 'E-mail ou senha incorretos.',
+                    'auth/user-not-found': 'Usuário não encontrado.',
+                    'auth/invalid-email': 'E-mail inválido.',
+                    'auth/too-many-requests': 'Muitas tentativas. Aguarde alguns minutos.',
+                    'auth/network-request-failed': 'Sem conexão com a internet.'
+                };
+                err.innerText = msgs[e.code] || ('Erro ao entrar: ' + e.message);
+                err.classList.remove('hidden');
+            } finally {
+                btn.disabled = false; btn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Entrar';
+            }
+        }
+
+        function doLogout() {
+            if (confirm('Deseja sair do sistema?')) auth.signOut();
+        }
+
+        // ===================== SINCRONIZAÇÃO =====================
+        function startListening() {
+            stopListening();
+            dbListener = dbRef.on('value', snapshot => {
+                db = normalize(snapshot.val());
+                renderPanels();
+
+                if (currentNegotiationId) {
+                    const neg = findNeg(currentNegotiationId);
+                    if (neg) refreshDetailsHeader(neg);
+                    else closeModal('detailsModal');
+                }
+            }, err => {
+                console.error(err);
+                alert('Sem permissão para ler o banco. Verifique as regras do Firebase e se você está logado.');
+            });
+        }
+        function stopListening() {
+            if (dbListener) { dbRef.off('value', dbListener); dbListener = null; }
+        }
+
+        // ===================== ABAS E RENDERIZAÇÃO =====================
+        const TAB_ON = "px-4 py-2 bg-blue-600 text-white rounded font-bold w-full md:w-auto";
+        const TAB_OFF = "px-4 py-2 bg-gray-300 text-gray-700 rounded font-bold hover:bg-gray-400 w-full md:w-auto";
+
+        function switchTab(tab) {
+            currentTab = tab;
+            document.getElementById('activePanel').style.display = tab === 'active' ? 'grid' : 'none';
+            document.getElementById('historyPanel').style.display = tab === 'active' ? 'none' : 'block';
+            document.getElementById('btnTabActive').className = tab === 'active' ? TAB_ON : TAB_OFF;
+            document.getElementById('btnTabHistory').className = tab === 'active' ? TAB_OFF : TAB_ON;
+            renderPanels();
+        }
+
+        function matchesSearch(n, term) {
+            if (!term) return true;
+            const t = term.toLowerCase();
+            const td = digits(term);
+            return (n.clientName || '').toLowerCase().includes(t)
+                || (td && digits(n.cpf).includes(td))
+                || (td && digits(n.tel).includes(td));
+        }
+
+        function renderPanels() { renderActive(); renderHistory(); }
+
+        function renderActive() {
+            const panel = document.getElementById('activePanel');
+            const term = document.getElementById('searchInput').value.trim();
+            const ativas = db.filter(n => !INACTIVE.includes(n.status) && matchesSearch(n, term));
+
+            if (ativas.length === 0) {
+                panel.innerHTML = `<p class="col-span-full text-center text-gray-500 py-8">${term ? 'Nenhum cliente ativo encontrado.' : 'Nenhuma negociação ativa. Clique em "Novo Cliente" para começar.'}</p>`;
+                return;
+            }
+
+            // Ordena: minhas primeiro, depois por data de retorno, depois por nome
+            ativas.sort((a, b) => {
+                const am = a.responsible === currentUser.name ? 0 : 1;
+                const bm = b.responsible === currentUser.name ? 0 : 1;
+                if (am !== bm) return am - bm;
+                return (a.clientName || '').localeCompare(b.clientName || '');
+            });
+
+            panel.innerHTML = ativas.map(n => {
+                const canTakeover = n.allowTakeover === "Sim";
+                const isMine = n.responsible === currentUser.name;
+                const takeoverHTML = canTakeover ? `<div class="bg-green-100 text-green-800 text-[10px] font-bold px-2 py-1 mb-2 rounded border border-green-300 inline-block"><i class="fas fa-unlock"></i> Livre para assumir</div>` : '';
+
+                let btn;
+                if (isMine) btn = `<button onclick="openDetails('${n._key}')" class="w-full bg-blue-600 text-white py-2 rounded text-sm hover:bg-blue-700 shadow">Abrir Negociação</button>`;
+                else if (canTakeover) btn = `<button onclick="takeover('${n._key}')" class="w-full bg-yellow-500 text-white py-2 rounded text-sm font-bold hover:bg-yellow-600 shadow">Assumir Contato</button>`;
+                else btn = `<button disabled class="w-full bg-gray-300 text-gray-500 py-2 rounded text-sm cursor-not-allowed">Restrito a ${esc(n.responsible)}</button>`;
+
+                const extra = n.status === 'Retornar em data combinada' ? `<p class="text-sm text-red-600 font-bold"><i class="fas fa-calendar"></i> Retorno: ${esc(formatDate(n.returnDate))}</p>` : '';
+
+                return `
+                    <div class="bg-white rounded-lg shadow border p-4 flex flex-col justify-between">
+                        <div>
+                            <h3 class="font-bold text-lg leading-tight mb-1">${esc(n.clientName)}</h3>
+                            ${takeoverHTML}
+                            <div class="text-xs text-gray-600 mb-2 border-b pb-2">CPF: ${esc(n.cpf || '-')} | Tel: ${esc(n.tel || '-')}</div>
+                            <p class="text-sm mb-1"><strong>Status:</strong> ${esc(n.status)}</p>
+                            <p class="text-sm mb-1"><strong>Resp:</strong> ${esc(n.responsible)}</p>
+                            ${extra}
+                        </div>
+                        <div class="mt-4">${btn}</div>
+                    </div>`;
+            }).join('');
+        }
+
+        function renderHistory() {
+            const list = document.getElementById('historyList');
+            const term = document.getElementById('searchInput').value.trim();
+            const inativas = db.filter(n => INACTIVE.includes(n.status) && matchesSearch(n, term));
+
+            if (inativas.length === 0) {
+                list.innerHTML = `<p class="text-center text-gray-500 py-4">${term ? 'Nenhum cliente inativo encontrado.' : 'Nenhuma negociação no histórico.'}</p>`;
+                return;
+            }
+
+            list.innerHTML = inativas.map(n => {
+                const badge = n.status === "Não Atendido" ? "bg-red-100 text-red-800 border-red-300" : "bg-gray-200 text-gray-800 border-gray-400";
+                return `
+                    <div class="border p-4 rounded flex flex-col md:flex-row justify-between items-center bg-gray-50 hover:bg-gray-100 gap-4">
+                        <div class="w-full md:w-auto">
+                            <h4 class="font-bold text-lg">${esc(n.clientName)}</h4>
+                            <div class="text-xs text-gray-600 mb-1">CPF: ${esc(n.cpf || '-')} | Tel: ${esc(n.tel || '-')}</div>
+                            <span class="text-[10px] px-2 py-1 border rounded font-bold ${badge}">${esc(n.status)}</span>
+                            <span class="text-xs text-gray-500 ml-2">Resp: ${esc(n.responsible)}</span>
+                        </div>
+                        <div class="w-full md:w-auto">
+                            <button onclick="openDetails('${n._key}')" class="w-full md:w-auto bg-gray-800 text-white px-4 py-2 rounded text-sm font-bold shadow hover:bg-gray-900">Ver Histórico</button>
+                        </div>
+                    </div>`;
+            }).join('');
+        }
+
+        function formatDate(iso) {
+            if (!iso) return '';
+            const [y, m, d] = iso.split('-');
+            return (y && m && d) ? `${d}/${m}/${y}` : iso;
+        }
+
+        // ===================== NOVO CADASTRO =====================
+        function openNewModal() {
+            document.getElementById('duplicateSearchInput').value = "";
+            document.getElementById('duplicateResultArea').innerHTML = "";
+            document.getElementById('stepFillData').style.display = 'none';
+            document.getElementById('btnCancelStep1').style.display = 'flex';
+            openModal('newNegotiationModal');
+            setTimeout(() => document.getElementById('duplicateSearchInput').focus(), 50);
+        }
+
+        function checkDuplicate() {
+            const raw = document.getElementById('duplicateSearchInput').value.trim();
+            const term = raw.toLowerCase();
+            const resultArea = document.getElementById('duplicateResultArea');
+
+            if (term.length < 3) {
+                resultArea.innerHTML = `<p class="text-red-600 text-sm">Digite ao menos 3 caracteres para buscar.</p>`;
+                return;
+            }
+
+            const td = digits(term);
+            const found = db.find(n => (n.clientName || '').toLowerCase().includes(term) || (td && digits(n.cpf).includes(td)));
+
+            if (found) {
+                resultArea.innerHTML = `
+                    <div class="bg-yellow-100 border border-yellow-400 text-yellow-800 p-3 rounded">
+                        <p class="font-bold mb-2"><i class="fas fa-exclamation-triangle"></i> Cliente já cadastrado!</p>
+                        <p class="text-sm mb-2">Nome: ${esc(found.clientName)} | Status: ${esc(found.status)} | Resp: ${esc(found.responsible)}</p>
+                        <button onclick="openDetailsFromSearch('${found._key}')" class="bg-yellow-600 text-white px-4 py-1 rounded text-sm hover:bg-yellow-700">Abrir Cadastro Existente</button>
+                    </div>`;
+                document.getElementById('stepFillData').style.display = 'none';
+                document.getElementById('btnCancelStep1').style.display = 'flex';
+            } else {
+                resultArea.innerHTML = `<p class="text-green-600 text-sm font-bold"><i class="fas fa-check"></i> Cliente não encontrado. Prossiga com o cadastro abaixo.</p>`;
+                if (/\d/.test(term)) document.getElementById('newCpf').value = raw;
+                else document.getElementById('newClientName').value = raw;
+                document.getElementById('stepFillData').style.display = 'block';
+                document.getElementById('btnCancelStep1').style.display = 'none';
+            }
+        }
+
+        function openDetailsFromSearch(key) {
+            closeModal('newNegotiationModal');
+            openDetails(key);
+        }
+
+        async function createNegotiation() {
+            const clientName = document.getElementById('newClientName').value.trim();
+            const cpf = document.getElementById('newCpf').value.trim();
+            const tel = document.getElementById('newTel').value.trim();
+            const email = document.getElementById('newEmail').value.trim();
+            const status = document.getElementById('newStatus').value;
+            const returnDate = document.getElementById('newReturnDate').value;
+            const allowTakeover = document.getElementById('newAllowTakeover').value;
+            const obs = document.getElementById('newObservation').value.trim();
+
+            if (!clientName || !tel) { alert("Nome e Telefone são obrigatórios!"); return; }
+            if (status === 'Retornar em data combinada' && !returnDate) { alert("Preencha a data de retorno!"); return; }
+
+            const newRef = dbRef.push();
+            const newNeg = {
+                id: newRef.key,
+                clientName, cpf, tel, email,
+                responsible: currentUser.name,
+                responsibleUid: currentUser.uid,
+                status,
+                returnDate: returnDate || null,
+                allowTakeover,
+                failedAttempts: 0,
+                createdAt: getTimestamp(),
+                createdAtMs: Date.now(),
+                timeline: {}
+            };
+            const t1 = timelineRef(newRef.key).push().key;
+            newNeg.timeline[t1] = { date: getTimestamp(), operator: currentUser.name, uid: currentUser.uid, action: "Criação do Cadastro", detail: `Criado com status: ${status}` };
+            if (obs) {
+                const t2 = timelineRef(newRef.key).push().key;
+                newNeg.timeline[t2] = { date: getTimestamp(), operator: currentUser.name, uid: currentUser.uid, action: "Inclusão de observação", detail: obs };
+            }
+
+            try {
+                await newRef.set(newNeg);
+            } catch (e) { alert('Erro ao salvar: ' + e.message); return; }
+
+            closeModal('newNegotiationModal');
+            ['newClientName','newCpf','newTel','newEmail','newReturnDate','newObservation'].forEach(id => document.getElementById(id).value = "");
+            document.getElementById('newStatus').value = "Em negociação";
+            toggleReturnDate('newStatus', 'newReturnDateDiv');
+            switchTab('active');
+        }
+
+        function toggleReturnDate(selectId, divId) {
+            const val = document.getElementById(selectId).value;
+            document.getElementById(divId).style.display = val === 'Retornar em data combinada' ? 'block' : 'none';
+        }
+
+        // ===================== AÇÕES =====================
+        async function takeover(key) {
+            const neg = findNeg(key);
+            if (!neg) return;
+            if (!confirm(`Deseja assumir o contato de ${neg.clientName}?`)) return;
+            const prev = neg.responsible;
+            await recRef(key).update({ responsible: currentUser.name, responsibleUid: currentUser.uid });
+            await logTimeline(key, "Alteração de responsável", `Contato assumido por ${currentUser.name} (antes: ${prev})`);
+        }
+
+        function refreshDetailsHeader(neg) {
+            document.getElementById('detailClientName').innerText = neg.clientName;
+            document.getElementById('detailCpf').innerText = neg.cpf || 'Não informado';
+            document.getElementById('detailTel').innerText = neg.tel || 'Não informado';
+            document.getElementById('detailEmail').innerText = neg.email || 'Não informado';
+            document.getElementById('detailResponsible').innerText = neg.responsible;
+            document.getElementById('detailStatusBadge').innerText = neg.status;
+            document.getElementById('detailFailedAttempts').innerText = neg.failedAttempts || 0;
+            renderTimeline(neg);
+        }
+
+        function openDetails(key) {
+            const neg = findNeg(key);
+            if (!neg) return;
+            currentNegotiationId = key;
+
+            const isInactive = INACTIVE.includes(neg.status);
+            document.getElementById('actionForms').style.display = isInactive ? 'none' : 'block';
+            document.getElementById('resumeArea').style.display = isInactive ? 'block' : 'none';
+            document.getElementById('editForm').style.display = 'none';
+
+            if (!isInactive) {
+                document.getElementById('actionStatus').value = neg.status;
+                document.getElementById('actionReturnDate').value = neg.returnDate || '';
+                toggleReturnDate('actionStatus', 'actionReturnDateDiv');
+            }
+            document.getElementById('actionObservation').value = '';
+            document.getElementById('actionProposal').value = '';
+
+            refreshDetailsHeader(neg);
+            openModal('detailsModal');
+        }
+
+        function renderTimeline(neg) {
+            const container = document.getElementById('timelineContainer');
+            if (!neg.timeline || neg.timeline.length === 0) { container.innerHTML = '<p class="text-gray-400 text-sm">Sem registros.</p>'; return; }
+
+            container.innerHTML = neg.timeline.slice().reverse().map(t => {
+                let icon = "fa-info-circle text-blue-500";
+                const a = t.action || '';
+                if (a.includes("Criação")) icon = "fa-star text-yellow-500";
+                if (a.includes("Proposta") || a.includes("proposta")) icon = "fa-handshake text-green-500";
+                if (a.includes("Conclusão")) icon = "fa-check-circle text-gray-800";
+                if (a.includes("Retomada")) icon = "fa-redo text-yellow-600";
+                if (a.includes("Não Atendida")) icon = "fa-phone-slash text-red-500";
+                if (a.includes("responsável")) icon = "fa-user-friends text-purple-500";
+                if (a.includes("cadastrais")) icon = "fa-pen text-blue-600";
+                return `
+                    <div class="mb-4 border-l-2 border-gray-300 pl-4 relative">
+                        <i class="fas ${icon} absolute -left-[9px] top-1 bg-gray-50 text-lg"></i>
+                        <p class="text-xs text-gray-500">${esc(t.date)} - <strong>${esc(t.operator)}</strong></p>
+                        <p class="text-sm font-bold mt-1">${esc(t.action)}</p>
+                        <p class="text-sm text-gray-700 bg-white p-2 border rounded mt-1 whitespace-pre-wrap">${esc(t.detail)}</p>
+                    </div>`;
+            }).join('');
+        }
+
+        async function updateStatus() {
+            const key = currentNegotiationId;
+            const neg = findNeg(key);
+            if (!neg) return;
+            const status = document.getElementById('actionStatus').value;
+            const date = document.getElementById('actionReturnDate').value;
+
+            if (status === 'Retornar em data combinada' && !date) { alert("Preencha a data!"); return; }
+            if (status === "Concluído" && !confirm("Deseja concluir a negociação? Ela será enviada ao histórico.")) {
+                document.getElementById('actionStatus').value = neg.status;
+                toggleReturnDate('actionStatus', 'actionReturnDateDiv');
+                return;
+            }
+
+            const updates = { status };
+            if (status === 'Retornar em data combinada') updates.returnDate = date;
+            await recRef(key).update(updates);
+            await logTimeline(key,
+                status === "Concluído" ? "Conclusão da negociação" : "Alteração de status",
+                status === 'Retornar em data combinada' ? `${status} para ${formatDate(date)}` : status);
+            if (status === "Concluído") closeModal('detailsModal');
+        }
+
+        async function registerMissedCall() {
+            const key = currentNegotiationId;
+            const neg = findNeg(key);
+            if (!neg) return;
+            if (!confirm("Registrar que o cliente não atendeu? O cadastro irá para o histórico.")) return;
+            const attempts = (neg.failedAttempts || 0) + 1;
+            await recRef(key).update({ failedAttempts: attempts, status: "Não Atendido" });
+            await logTimeline(key, "Tentativa Não Atendida", `Ligação não atendida. Total de tentativas perdidas: ${attempts}`);
+            closeModal('detailsModal');
+            switchTab('active');
+        }
+
+        async function resumeNegotiation() {
+            const key = currentNegotiationId;
+            if (!findNeg(key)) return;
+            if (!confirm("Deseja retomar este contato? Ele voltará para o painel de ativos no seu nome.")) return;
+            await recRef(key).update({ status: "Em negociação", responsible: currentUser.name, responsibleUid: currentUser.uid });
+            await logTimeline(key, "Retomada de negociação", "Cliente reativado. Status alterado para: Em negociação");
+            closeModal('detailsModal');
+            document.getElementById('searchInput').value = "";
+            switchTab('active');
+        }
+
+        async function addInteraction(type, inputId) {
+            const key = currentNegotiationId;
+            if (!findNeg(key)) return;
+            const text = document.getElementById(inputId).value.trim();
+            if (!text) { alert("O campo não pode estar vazio!"); return; }
+            document.getElementById(inputId).value = "";
+            await logTimeline(key, type === 'Observação' ? "Inclusão de observação" : "Inclusão de proposta", text);
+        }
+
+        // ---- Edição de dados cadastrais ----
+        function toggleEditForm() {
+            const f = document.getElementById('editForm');
+            const neg = findNeg(currentNegotiationId);
+            if (!neg) return;
+            if (f.style.display === 'block') { f.style.display = 'none'; return; }
+            document.getElementById('editName').value = neg.clientName || '';
+            document.getElementById('editCpf').value = neg.cpf || '';
+            document.getElementById('editTel').value = neg.tel || '';
+            document.getElementById('editEmail').value = neg.email || '';
+            f.style.display = 'block';
+        }
+
+        async function saveEdit() {
+            const key = currentNegotiationId;
+            const neg = findNeg(key);
+            if (!neg) return;
+            const updates = {
+                clientName: document.getElementById('editName').value.trim(),
+                cpf: document.getElementById('editCpf').value.trim(),
+                tel: document.getElementById('editTel').value.trim(),
+                email: document.getElementById('editEmail').value.trim()
+            };
+            if (!updates.clientName || !updates.tel) { alert("Nome e Telefone são obrigatórios!"); return; }
+
+            const changes = [];
+            const labels = { clientName: 'Nome', cpf: 'CPF', tel: 'Telefone', email: 'E-mail' };
+            for (const k in updates) {
+                if ((neg[k] || '') !== updates[k]) changes.push(`${labels[k]}: "${neg[k] || '-'}" → "${updates[k] || '-'}"`);
+            }
+            if (changes.length === 0) { document.getElementById('editForm').style.display = 'none'; return; }
+
+            await recRef(key).update(updates);
+            await logTimeline(key, "Alteração de dados cadastrais", changes.join('\n'));
+            document.getElementById('editForm').style.display = 'none';
+        }
+
+        async function deleteNegotiation() {
+            const key = currentNegotiationId;
+            const neg = findNeg(key);
+            if (!neg) return;
+            const typed = prompt(`Esta ação apaga o cadastro e todo o histórico de "${neg.clientName}" e não pode ser desfeita.\n\nPara confirmar, digite EXCLUIR:`);
+            if (typed !== 'EXCLUIR') return;
+            await recRef(key).remove();
+            closeModal('detailsModal');
+        }
+
+        function exportCSV() {
+            const neg = findNeg(currentNegotiationId);
+            if (!neg) return;
+            const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+            let csv = "\uFEFFData;Operador;Acao;Detalhes\n";
+            (neg.timeline || []).forEach(t => { csv += [q(t.date), q(t.operator), q(t.action), q(t.detail)].join(';') + "\n"; });
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+            const link = document.createElement("a");
+            link.href = URL.createObjectURL(blob);
+            link.download = `historico_${neg.clientName.replace(/\s+/g, '_')}.csv`;
+            document.body.appendChild(link); link.click(); document.body.removeChild(link);
+            URL.revokeObjectURL(link.href);
+        }
+
+        function openModal(id) { document.getElementById(id).style.display = 'flex'; }
+        function closeModal(id) {
+            document.getElementById(id).style.display = 'none';
+            if (id === 'detailsModal') currentNegotiationId = null;
+        }
+
+        // Fecha modais com ESC
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape') { closeModal('detailsModal'); closeModal('newNegotiationModal'); }
+        });
+
+        switchTab('active');
+    </script>
+</body>
+</html>
